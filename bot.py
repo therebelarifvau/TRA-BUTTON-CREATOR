@@ -1,126 +1,112 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, CallbackContext
-)
-import requests
+import os
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
+from telegram.error import BadRequest
 
-# Replace with your details
-BOT_TOKEN = "8187684212:AAE5l3HB0w53NShfhxyruz28fMPLxpIv56s"
-CHANNEL_USERNAME = "THE_REBEL_SQUAD"  # Replace with your channel username (without @)
-BOT_NAME = "TRS BUTTON CREATOR"
-YOUR_NAME = "ARIF ( THE REBEL )"
-ADMIN_USER_ID = 6126538092  # Your Telegram ID (Admin)
+# Replace with your channel details
+CHANNEL_USERNAME = "THE_REBEL_SQUAD"  # e.g., 'THE_REBEL_SQUAD'
+CHANNEL_URL = f"https://t.me/{CHANNEL_USERNAME}"
+CREATOR_NAME = "THE REBEL"  # Replace with your name or brand
 
 # Check if the user is a member of the channel
-def is_user_member(user_id: int) -> bool:
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember?chat_id=@{CHANNEL_USERNAME}&user_id={user_id}"
-    response = requests.get(url).json()
-    status = response.get("result", {}).get("status", "")
-    return status in ["member", "administrator", "creator"]
-
-# Start command handler
-def start(update: Update, context: CallbackContext) -> None:
-    user_id = update.message.from_user.id
-    if not is_user_member(user_id):
-        keyboard = [
-            [InlineKeyboardButton("Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(
-            f"To use this bot, you must join our channel: @{CHANNEL_USERNAME}",
-            reply_markup=reply_markup,
-        )
-    else:
-        keyboard = [
-            [InlineKeyboardButton("Create Post", callback_data="create_button")],
-            [InlineKeyboardButton("About", callback_data="about")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text("Welcome! Use the buttons below:", reply_markup=reply_markup)
-
-# Callback query handler
-def button_handler(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    query.answer()
-
-    if query.data == "create_button":
-        query.edit_message_text("Please send the post content (text, photo, or video).")
-        context.user_data['awaiting_content'] = True
-    elif query.data == "about":
-        about_text = f"**Bot Name**: {BOT_NAME}\n**Your Name**: {YOUR_NAME}\n**Channel**: @{CHANNEL_USERNAME}"
-        query.edit_message_text(about_text)
-
-# Handle posts and create buttons
-def handle_message(update: Update, context: CallbackContext) -> None:
-    user_id = update.message.from_user.id
-    if not is_user_member(user_id):
-        update.message.reply_text(
-            f"To use this bot, you must join our channel: @{CHANNEL_USERNAME}"
-        )
-        return
-
-    if context.user_data.get('awaiting_content'):
-        context.user_data['post_content'] = update.message
-        update.message.reply_text("Post received. Send the button label and URL in this format:\n`Label - URL`")
-        context.user_data['awaiting_button'] = True
-        context.user_data['awaiting_content'] = False
-    elif context.user_data.get('awaiting_button'):
-        button_data = update.message.text
-        if " - " not in button_data:
-            update.message.reply_text("Invalid format. Use this format: `Label - URL`")
-            return
-
-        label, url = button_data.split(" - ", 1)
-        post_content = context.user_data.get('post_content')
-
-        # Create inline keyboard
-        keyboard = [[InlineKeyboardButton(label, url=url)]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # Send post with button
-        if post_content.text:
-            update.message.reply_text(post_content.text, reply_markup=reply_markup)
-        elif post_content.photo:
-            update.message.reply_photo(post_content.photo[-1].file_id, caption=post_content.caption, reply_markup=reply_markup)
-        elif post_content.video:
-            update.message.reply_video(post_content.video.file_id, caption=post_content.caption, reply_markup=reply_markup)
-
-        update.message.reply_text("Post created and ready to share!")
-        context.user_data.clear()
-
-# Admin-only Command to Share Post to Channel
-def share_post(update: Update, context: CallbackContext) -> None:
-    user_id = update.message.from_user.id
-    if user_id != ADMIN_USER_ID:
-        update.message.reply_text("You are not authorized to share posts.")
-        return
-
-    if len(context.args) < 2:
-        update.message.reply_text("Please provide the post content and the channel username.")
-        return
-
-    post_content = context.args[0]
-    channel_username = context.args[1]
-
+def is_user_member(update):
     try:
-        context.bot.send_message(chat_id=f"@{channel_username}", text=post_content)
-        update.message.reply_text(f"Post successfully shared to @{channel_username}.")
-    except Exception as e:
-        update.message.reply_text(f"Failed to share post: {e}")
+        user_id = update.message.from_user.id
+        member_status = update.message.bot.get_chat_member(CHANNEL_USERNAME, user_id).status
+        return member_status in ["member", "administrator", "creator"]
+    except BadRequest:
+        return False  # User might not have interacted with the bot yet
 
-# Main function to start the bot
-def main() -> None:
-    updater = Updater(BOT_TOKEN)
+# Command to start the bot
+def start(update, context):
+    # Force join message if the user isn't a member
+    if not is_user_member(update):
+        keyboard = [[InlineKeyboardButton("Join our Channel", url=CHANNEL_URL)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(
+            "You must join our channel to use this bot.", reply_markup=reply_markup
+        )
+        return
 
-    # Add command handlers
-    updater.dispatcher.add_handler(CommandHandler("start", start))
-    updater.dispatcher.add_handler(CallbackQueryHandler(button_handler))
-    updater.dispatcher.add_handler(MessageHandler(Filters.text | Filters.photo | Filters.video, handle_message))
-    updater.dispatcher.add_handler(CommandHandler("share_post", share_post))
+    # Main menu
+    keyboard = [
+        [InlineKeyboardButton("Menu", callback_data='menu')],
+        [InlineKeyboardButton("About", callback_data='about')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("Welcome to the bot! Use the buttons below.", reply_markup=reply_markup)
+
+# Callback for the About button
+def about(update, context):
+    update.callback_query.answer()
+    update.callback_query.edit_message_text(
+        text=f"Bot created by {CREATOR_NAME}.\nJoin our channel here: {CHANNEL_URL}"
+    )
+
+# Menu for creating posts
+def menu(update, context):
+    update.callback_query.answer()
+    keyboard = [
+        [InlineKeyboardButton("Create Post with Button", callback_data='create_post')],
+        [InlineKeyboardButton("Back", callback_data='back_to_main')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.callback_query.edit_message_text(
+        text="Here is the menu. Choose an option:", reply_markup=reply_markup
+    )
+
+# Create post with button
+def create_post(update, context):
+    update.callback_query.answer()
+    update.callback_query.edit_message_text(
+        text="Send me the text for the post followed by the button text and URL.\n\nExample:\n`Post Text | Button Text | https://example.com`",
+        parse_mode="Markdown",
+    )
+    context.user_data["awaiting_post"] = True
+
+# Handle user message for post creation
+def handle_message(update, context):
+    if context.user_data.get("awaiting_post", False):
+        try:
+            post_text, button_text, button_url = map(str.strip, update.message.text.split("|"))
+            keyboard = [[InlineKeyboardButton(button_text, url=button_url)]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Send post
+            update.message.reply_text(post_text, reply_markup=reply_markup)
+            update.message.reply_text("Your post has been created and sent!")
+        except ValueError:
+            update.message.reply_text(
+                "Invalid format. Please use the format:\n`Post Text | Button Text | URL`",
+                parse_mode="Markdown",
+            )
+        finally:
+            context.user_data["awaiting_post"] = False
+
+# Callback to go back to the main menu
+def back_to_main(update, context):
+    update.callback_query.answer()
+    start(update.callback_query, context)
+
+def main():
+    # Fetch API token from environment variables
+    API_TOKEN = os.getenv("API_TOKEN")  # Add your token as an environment variable on Railway
+
+    updater = Updater(API_TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
+
+    # Register command and callback handlers
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CallbackQueryHandler(about, pattern='about'))
+    dispatcher.add_handler(CallbackQueryHandler(menu, pattern='menu'))
+    dispatcher.add_handler(CallbackQueryHandler(create_post, pattern='create_post'))
+    dispatcher.add_handler(CallbackQueryHandler(back_to_main, pattern='back_to_main'))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
     # Start the bot
+    print("Bot is running...")
     updater.start_polling()
     updater.idle()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
