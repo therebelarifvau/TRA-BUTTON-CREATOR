@@ -90,7 +90,7 @@ def back_to_main(update, context):
 
 def main():
     # Fetch API token from environment variables
-    API_TOKEN = os.getenv("API_TOKEN")  # Add your token as an environment variable on Railway
+    API_TOKEN = os.getenv("API_TOKEN")  # Add your token as an environment variable
 
     updater = Updater(API_TOKEN, use_context=True)
     dispatcher = updater.dispatcher
